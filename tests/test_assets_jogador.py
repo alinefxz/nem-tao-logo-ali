@@ -7,6 +7,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import pygame
 
 from scripts.assets import carregar_animacao
+from scripts.config import CHAO_Y
 from scripts.interfaces import Botao
 from scripts.jogador import Jogador
 
@@ -30,6 +31,16 @@ class TestAssetsJogador(unittest.TestCase):
         jogador = Jogador(100, 600)
         self.assertEqual(jogador.rect.bottom, 600)
         self.assertGreater(jogador.rect.width, 0)
+
+    def test_player_uses_idle_and_burrow_animation_states(self):
+        jogador = Jogador(100, CHAO_Y)
+        self.assertIn("parada", jogador.animacoes)
+        self.assertIn("buraco", jogador.animacoes)
+        jogador.mover(0)
+        jogador.atualizar(1 / 60, [], [])
+        self.assertEqual(jogador.estado, "parada")
+        jogador.iniciar_queda_buraco()
+        self.assertEqual(jogador.estado, "buraco")
 
     def test_button_uses_click_event(self):
         surface = pygame.Surface((100, 60))

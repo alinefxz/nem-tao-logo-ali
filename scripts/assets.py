@@ -56,7 +56,26 @@ def normalizar_frame(imagem, altura, largura_canvas=None):
     return canvas
 
 
-def carregar_animacao(pasta, nome, altura, n_frames=None):
+def altura_referencia_animacao(pasta, nome):
+    """Retorna a altura real de referência de uma animação.
+
+    Alguns sprites possuem elementos de cenário no quadro (por exemplo, a
+    animação de queda no bueiro). Para manter a escala desses elementos, é
+    melhor usar a altura de uma pose de personagem como referência do que
+    redimensionar cada quadro isoladamente.
+    """
+    diretorio = os.path.join(ASSETS_DIR, pasta)
+    arquivos = _arquivos_animacao(diretorio, nome) if os.path.isdir(diretorio) else []
+    if not arquivos:
+        return 1
+    alturas = []
+    for arquivo in arquivos:
+        imagem = _imagem_com_alpha(os.path.join(diretorio, arquivo))
+        alturas.append(_recortar_alpha(imagem).get_height())
+    return max(1, max(alturas))
+
+
+def carregar_animacao(pasta, nome, altura, n_frames=None, altura_referencia=None):
     diretorio = os.path.join(ASSETS_DIR, pasta)
     arquivos = _arquivos_animacao(diretorio, nome) if os.path.isdir(diretorio) else []
     if n_frames is not None:
@@ -66,6 +85,29 @@ def carregar_animacao(pasta, nome, altura, n_frames=None):
         return [_caixa_fallback(nome, altura)]
 
     recortadas = [_recortar_alpha(imagem) for imagem in imagens]
+
+    if altura_referencia is not None:
+        # Mantém uma escala única para todos os quadros. Isso é importante
+        # para animações que misturam personagem e cenário, como ``buraco``:
+        # o quadro do bueiro vazio não pode aumentar de tamanho sozinho.
+        escala = altura / max(1, altura_referencia)
+        tamanhos = [
+            (
+                max(1, round(imagem.get_width() * escala)),
+                max(1, round(imagem.get_height() * escala)),
+            )
+            for imagem in recortadas
+        ]
+        largura_canvas = max(largura for largura, _ in tamanhos)
+        altura_canvas = max(altura, max(altura_quadro for _, altura_quadro in tamanhos))
+        quadros = []
+        for imagem, tamanho in zip(recortadas, tamanhos):
+            redimensionada = pygame.transform.smoothscale(imagem, tamanho)
+            canvas = pygame.Surface((largura_canvas, altura_canvas), pygame.SRCALPHA)
+            canvas.blit(redimensionada, ((largura_canvas - tamanho[0]) // 2, altura_canvas - tamanho[1]))
+            quadros.append(canvas)
+        return quadros
+
     larguras = [max(1, round(imagem.get_width() * altura / max(1, imagem.get_height()))) for imagem in recortadas]
     largura_canvas = max(larguras)
     return [normalizar_frame(imagem, altura, largura_canvas) for imagem in recortadas]
@@ -114,11 +156,52 @@ def carregar_calcada():
     if caminho in CACHE:
         return CACHE[caminho]
     imagem = _imagem_com_alpha(caminho)
+    imagem = _recortar_fundo_escuro(imagem)
     CACHE[caminho] = imagem
     return imagem
 
 
+def _recortar_fundo_escuro(imagem, limiar=18):
+    """Remove o fundo preto do PNG da calçada e conserva a arte do piso.
+
+    Esse asset foi exportado com fundo preto opaco, não com transparência.
+    Uma máscara por limiar remove somente as áreas escuras conectadas ao
+    fundo visual e permite recortar a faixa real antes de redimensioná-la.
+    """
+    mascara = pygame.mask.from_threshold(
+        imagem,
+        (0, 0, 0),
+        (limiar, limiar, limiar, 255),
+    )
+    mascara.invert()
+    alpha = mascara.to_surface(
+        setcolor=(255, 255, 255, 255),
+        unsetcolor=(0, 0, 0, 0),
+    )
+    limites = alpha.get_bounding_rect()
+    if limites.width == 0 or limites.height == 0:
+        return imagem.copy()
+    recortada = pygame.Surface(imagem.get_size(), pygame.SRCALPHA)
+    recortada.blit(imagem, (0, 0))
+    recortada.blit(alpha, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    return recortada.subsurface(limites).copy()
+
+
 def pre_carregar():
     carregar_calcada()
-    for nome in ("parada", "correr", "pular", "cair", "aterrissando", "morrendo", "respawn", "buraco", "derrapando", "porta"):
+    for nome in (
+        "parada",
+        "andar",
+        "correr",
+        "pular",
+        "cair",
+        "aterrissando",
+        "buraco",
+        "abaixar",
+        "derrapando",
+        "agua",
+        "morrendo",
+        "respawn",
+        "porta",
+    ):
         carregar_animacao("personagem", nome, ALTURA_JOGADOR)
