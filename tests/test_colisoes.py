@@ -9,7 +9,8 @@ import pygame
 from scripts.config import ALTURA, CHAO_Y
 from scripts.fase import Fase
 from scripts.config import TEMPO_RESPAWN
-from scripts.obstaculos import BuracoMovel, ConeRolante, PlacaQueCai, TrianguloFixo
+from scripts.jogador import LARGURA_BUEIRO_ANIMACAO_MAX
+from scripts.obstaculos import Buraco, BuracoMovel, ConeRolante, PlacaQueCai, TrianguloFixo
 
 
 class TeclasNeutras:
@@ -120,14 +121,13 @@ class TestColisoesDoCenario(unittest.TestCase):
         self.assertNotEqual(bueiro.atual, estado_inicial)
         self.assertFalse(fase.jogador.morto)
 
-    def test_animacao_do_buraco_se_ajusta_a_abertura(self):
+    def test_animacao_do_buraco_nao_estica_o_personagem_inteiro(self):
         fase = Fase(0)
         bueiro = fase.buracos[0]
         fase.jogador.iniciar_queda_buraco(bueiro.largura)
-        self.assertEqual(
-            max(quadro.get_width() for quadro in fase.jogador.animacoes["buraco"].quadros),
-            bueiro.largura,
-        )
+        maior_largura = max(quadro.get_width() for quadro in fase.jogador.animacoes["buraco"].quadros)
+        self.assertLess(maior_largura, bueiro.largura)
+        self.assertLessEqual(maior_largura, LARGURA_BUEIRO_ANIMACAO_MAX)
 
     def test_placa_cai_por_proximidade_sem_exigir_pulo(self):
         fase = Fase(4)
@@ -146,7 +146,27 @@ class TestColisoesDoCenario(unittest.TestCase):
 
     def test_placa_tem_tempo_extra_para_pular(self):
         placa = PlacaQueCai(1000)
-        self.assertGreaterEqual(placa.distancia_gatilho, 320)
+        tempo_queda = (CHAO_Y - placa.altura - placa.inicial_y) / placa.velocidade_queda
+        self.assertGreaterEqual(placa.distancia_gatilho, 420)
+        self.assertGreaterEqual(tempo_queda, 0.7)
+
+    def test_placa_usa_apenas_area_visivel_como_hitbox(self):
+        placa = PlacaQueCai(1000)
+        placa.estado = "caindo"
+        placa.y = CHAO_Y - placa.altura
+        placa._atualizar_hitbox()
+
+        self.assertLess(placa.hitbox.width, placa.largura_canvas / 4)
+        self.assertLess(placa.hitbox.left, placa.x)
+        self.assertGreater(placa.hitbox.right, placa.x)
+
+        jogador_longe_da_arte = pygame.Rect(
+            placa.x - placa.largura_canvas / 2 + 12,
+            placa.hitbox.y,
+            34,
+            88,
+        )
+        self.assertFalse(placa.hitbox.colliderect(jogador_longe_da_arte))
 
     def test_cone_respeita_limite_antes_da_placa(self):
         fase = Fase(0)
@@ -156,6 +176,30 @@ class TestColisoesDoCenario(unittest.TestCase):
             cone.atualizar(1 / 60, fase)
         self.assertLessEqual(cone.x, limite_final)
         self.assertLess(limite_final, 2300)
+
+    def test_cone_fica_em_trecho_delimitado_sem_invadir_bueiro(self):
+        for indice in (0, 3, 4):
+            fase = Fase(indice)
+            cones = [item for item in fase.obstaculos if isinstance(item, ConeRolante)]
+            bueiros = fase.buracos + [item for item in fase.obstaculos if isinstance(item, Buraco)]
+
+            for cone in cones:
+                for limite in cone.limites:
+                    cone.x = limite
+                    cone._atualizar_hitbox()
+                    visual_cone = pygame.Rect(
+                        round(cone.x - cone.largura / 2),
+                        CHAO_Y - cone.altura,
+                        cone.largura,
+                        cone.altura,
+                    )
+                    for bueiro in bueiros:
+                        estados = (0, 1) if isinstance(bueiro, BuracoMovel) else (None,)
+                        for estado in estados:
+                            if estado is not None:
+                                bueiro.atual = estado
+                                bueiro._atualizar_hitbox()
+                            self.assertFalse(visual_cone.colliderect(bueiro.hitbox))
 
     def test_respawn_fica_visivel_e_protegido(self):
         self.assertGreaterEqual(TEMPO_RESPAWN, 1.2)
@@ -171,6 +215,26 @@ class TestColisoesDoCenario(unittest.TestCase):
         for _ in range(max(1, int(tempo_restante * 60) - 1)):
             fase.atualizar(1 / 60, TeclasNeutras(), False)
         self.assertEqual(fase.jogador.estado, "respawn")
+
+    def test_respawn_nao_aceita_movimento_ate_terminar(self):
+        fase = Fase(0)
+        fase._reexibir_jogador()
+        x_inicial = fase.jogador.x
+
+        fase.atualizar(1 / 60, TeclasDireita(), True)
+        self.assertEqual(fase.jogador.estado, "respawn")
+        self.assertTrue(fase.jogador.no_chao)
+        self.assertEqual(fase.jogador.vx, 0.0)
+        self.assertEqual(fase.jogador.x, x_inicial)
+
+        for _ in range(30):
+            fase.atualizar(1 / 60, TeclasDireita(), False)
+        self.assertEqual(fase.jogador.estado, "respawn")
+        self.assertEqual(fase.jogador.x, x_inicial)
+
+        fase.jogador.tempo_estado = TEMPO_RESPAWN
+        fase.atualizar(1 / 60, TeclasDireita(), False)
+        self.assertGreater(fase.jogador.x, x_inicial)
 
     def test_calcada_eh_repetida_em_faixa_alinhada(self):
         fase = Fase(0)

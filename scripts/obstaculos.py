@@ -3,7 +3,7 @@ import math
 import pygame
 
 from scripts.assets import carregar_animacao, carregar_imagem
-from scripts.config import CHAO_Y
+from scripts.config import ALTURA_BUEIRO, CHAO_Y, LARGURA_BUEIRO
 
 
 def _imagem_unica(pasta, nome, altura):
@@ -31,18 +31,60 @@ class Buraco(Obstaculo):
     def __init__(self, x, largura=110):
         super().__init__()
         self.x = x
+        self.largura_planejada = largura
         # A abertura precisa ser claramente maior que o pé da personagem e
         # ocupar a mesma faixa da calçada onde ela caminha.
-        self.hitbox = pygame.Rect(x - largura / 2, CHAO_Y - 8, largura, 30)
         self.tipo = "buraco"
-        self.largura = largura
+        self.largura = LARGURA_BUEIRO
+        self.altura = ALTURA_BUEIRO
         self.cor = (25, 25, 32)
+        self._atualizar_hitbox()
+
+    def _atualizar_hitbox(self):
+        self.hitbox = pygame.Rect(
+            round(self.x - self.largura / 2),
+            CHAO_Y - 10,
+            self.largura,
+            self.altura,
+        )
+
+    def reposicionar(self, x):
+        self.x = x
+        self._atualizar_hitbox()
 
     def desenhar(self, tela, camera_x):
         r = self.hitbox.move(-camera_x, 0)
-        pygame.draw.ellipse(tela, (15, 15, 20), r.inflate(0, 12))
-        pygame.draw.ellipse(tela, (10, 10, 12), r.inflate(-24, 4))
-        pygame.draw.arc(tela, (60, 60, 70), r.inflate(-16, 6), 0, math.pi, 2)
+        laje = r.inflate(28, 12).move(0, -2)
+        pygame.draw.rect(tela, (88, 87, 80), laje, border_radius=2)
+        pygame.draw.rect(tela, (52, 52, 49), laje, 2, border_radius=2)
+        pygame.draw.line(tela, (121, 119, 108), laje.topleft, laje.topright, 2)
+        pygame.draw.line(tela, (62, 62, 58), laje.bottomleft, laje.bottomright, 2)
+        for fracao in (0.28, 0.72):
+            x = round(laje.left + laje.width * fracao)
+            pygame.draw.line(tela, (68, 68, 63), (x, laje.top + 3), (x - 6, laje.bottom - 4), 1)
+
+        sombra = r.inflate(6, 5).move(0, 2)
+        pygame.draw.ellipse(tela, (18, 17, 18), sombra)
+        pygame.draw.ellipse(tela, (8, 9, 12), r.inflate(-6, -6))
+        pygame.draw.ellipse(tela, (44, 47, 53), r.inflate(-12, -9))
+        pygame.draw.ellipse(tela, (92, 96, 104), r.inflate(-2, -3), 3)
+
+        tampa = pygame.Surface((54, 38), pygame.SRCALPHA)
+        tampa_rect = tampa.get_rect()
+        pygame.draw.ellipse(tampa, (39, 42, 49), tampa_rect.inflate(-6, -6))
+        pygame.draw.ellipse(tampa, (106, 110, 118), tampa_rect.inflate(-6, -6), 2)
+        pygame.draw.ellipse(tampa, (72, 76, 84), tampa_rect.inflate(-18, -15), 1)
+        for deslocamento in (-13, -4, 5, 14):
+            pygame.draw.line(
+                tampa,
+                (86, 90, 98),
+                (tampa_rect.centerx + deslocamento - 7, tampa_rect.top + 11),
+                (tampa_rect.centerx + deslocamento + 4, tampa_rect.bottom - 10),
+                1,
+            )
+        tampa = pygame.transform.rotate(tampa, -18)
+        tampa_pos = tampa.get_rect(midleft=(r.centerx + 18, r.centery - 5))
+        tela.blit(tampa, tampa_pos)
 
 
 class BuracoMovel(Obstaculo):
@@ -51,20 +93,18 @@ class BuracoMovel(Obstaculo):
         self.pos_a = x_a
         self.pos_b = x_b
         self.atual = 0
-        self.largura = largura
+        self.largura_planejada = largura
         self.banda = banda
         self.cooldown = 0.0
         self.gatilho_usado = False
         self.tipo = "buraco_movel"
         self.buraco_visual = Buraco(0, largura)
+        self.largura = self.buraco_visual.largura
         self._atualizar_hitbox()
 
     def _atualizar_hitbox(self):
         x = self.pos_a if self.atual == 0 else self.pos_b
-        self.buraco_visual.x = x
-        self.buraco_visual.hitbox = pygame.Rect(
-            x - self.largura / 2, CHAO_Y - 8, self.largura, 30
-        )
+        self.buraco_visual.reposicionar(x)
         self.hitbox = self.buraco_visual.hitbox
 
     def atualizar(self, dt, mundo):
@@ -98,15 +138,18 @@ class BuracoMovel(Obstaculo):
 
 
 class PlacaQueCai(Obstaculo):
-    def __init__(self, x, altura=110, distancia_gatilho=360):
+    def __init__(self, x, altura=110, distancia_gatilho=460, velocidade_queda=1150):
         super().__init__()
         self.x = x
         self.altura = altura
         self.imagem = _imagem_unica("cenario", "placa", altura)
-        self.largura = self.imagem.get_width()
+        self.largura_canvas = self.imagem.get_width()
+        self.area_visivel = self.imagem.get_bounding_rect(min_alpha=1)
+        self.largura = self.area_visivel.width
         self.y = -300.0
         self.estado = "suspensa"
         self.distancia_gatilho = distancia_gatilho
+        self.velocidade_queda = velocidade_queda
         self.inicial_y = -300.0
         self.tipo = "placa"
 
@@ -120,8 +163,15 @@ class PlacaQueCai(Obstaculo):
         if self.estado == "suspensa":
             self.hitbox = pygame.Rect(0, 0, 1, 1)
         else:
+            margem_x = min(10, max(4, self.area_visivel.width // 8))
+            margem_y = min(8, max(3, self.area_visivel.height // 16))
+            esquerda = self.x - self.largura_canvas / 2 + self.area_visivel.left
+            topo = self.y + self.area_visivel.top
             self.hitbox = pygame.Rect(
-                self.x - self.largura / 2, self.y, self.largura, self.altura
+                round(esquerda + margem_x),
+                round(topo + margem_y),
+                max(1, self.area_visivel.width - margem_x * 2),
+                max(1, self.area_visivel.height - margem_y * 2),
             )
 
     def atualizar(self, dt, mundo):
@@ -133,14 +183,14 @@ class PlacaQueCai(Obstaculo):
             if not jogador.morto and chegando:
                 self.estado = "caindo"
         elif self.estado == "caindo":
-            self.y += 1500.0 * dt
+            self.y += self.velocidade_queda * dt
             if self.y >= CHAO_Y - self.altura:
                 self.y = CHAO_Y - self.altura
                 self.estado = "caida"
         self._atualizar_hitbox()
 
     def desenhar(self, tela, camera_x):
-        pos = (round(self.x - camera_x - self.largura / 2), round(self.y))
+        pos = (round(self.x - camera_x - self.largura_canvas / 2), round(self.y))
         tela.blit(self.imagem, pos)
 
 
@@ -152,6 +202,8 @@ class ConeRolante(Obstaculo):
         self.altura = altura
         self.x = x_inicial
         self.velocidade = -velocidade
+        self.x_inicial = x_inicial
+        self.velocidade_inicial = self.velocidade
         self.limites = limites
         self.tempo_anim = 0.0
         self.tipo = "cone_rolante"
@@ -177,7 +229,10 @@ class ConeRolante(Obstaculo):
         self._atualizar_hitbox()
 
     def redefinir(self):
+        self.x = self.x_inicial
+        self.velocidade = self.velocidade_inicial
         self.tempo_anim = 0.0
+        self._atualizar_hitbox()
 
     def desenhar(self, tela, camera_x):
         indice = int(self.tempo_anim * 18) % len(self.quadros)

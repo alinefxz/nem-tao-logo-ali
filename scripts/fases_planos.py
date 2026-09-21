@@ -39,7 +39,7 @@ def _plano_1():
     plano["obstaculos"] = [
         CalcadaFalsa(2850, 190),
         PlacaQueCai(2300),
-        ConeRolante(2050, velocidade=230, limites=(1250, 2100)),
+        ConeRolante(2050, velocidade=230, limites=(1985, 2100)),
         Buraco(2850, 190),
         TrianguloFixo(700),
         TrianguloFixo(2550),
@@ -93,7 +93,7 @@ def _plano_4():
         CalcadaFalsa(2650, 210),
         Buraco(2650, 210),
         Pendulo(2900, comprimento=210, amplitude=1.0, periodo=2.1),
-        ConeRolante(3400, velocidade=430, altura=88, limites=(3000, 3850)),
+        ConeRolante(3700, velocidade=430, altura=88, limites=(3565, 3850)),
         GalhoCaindo(3800, intervalo=2.2),
     ]
     return plano
@@ -108,7 +108,7 @@ def _plano_5():
         PlacaQueCai(1150),
         BarreiraTemporizada(1400, periodo_baixo=1.2, periodo_alto=1.2),
         GalhoCaindo(1650, intervalo=2.3),
-        ConeRolante(2150, velocidade=420, limites=(1500, 2300)),
+        ConeRolante(2150, velocidade=420, limites=(2055, 2300)),
         Carro(2600, velocidade=340, sentido=-1, sprite="carro", largura=230, altura=115),
         PlacaGiratoria(2850, periodo=2.0),
         Pendulo(3300, comprimento=210, amplitude=1.0, periodo=2.0),

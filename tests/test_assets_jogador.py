@@ -42,6 +42,16 @@ class TestAssetsJogador(unittest.TestCase):
         jogador.iniciar_queda_buraco()
         self.assertEqual(jogador.estado, "buraco")
 
+    def test_player_keeps_running_animation_when_shift_is_held(self):
+        jogador = Jogador(100, CHAO_Y)
+        jogador.mover(1, correndo=True)
+        jogador.atualizar(1 / 60, [], [])
+        self.assertEqual(jogador.estado, "correr")
+
+        jogador.mover(1, correndo=False)
+        jogador.atualizar(1 / 60, [], [])
+        self.assertEqual(jogador.estado, "andar")
+
     def test_button_uses_click_event(self):
         surface = pygame.Surface((100, 60))
         button = Botao(surface, "Jogar", 10, 10, 24, (20, 20, 20), (255, 255, 255))

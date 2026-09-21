@@ -4,6 +4,7 @@ from scripts.animacao import Animacao
 from scripts.assets import altura_referencia_animacao, carregar_animacao
 from scripts.config import (
     ALTURA_JOGADOR,
+    LARGURA_BUEIRO,
     CHAO_Y,
     GRAVIDADE,
     LARGURA_JOGADOR,
@@ -13,6 +14,10 @@ from scripts.config import (
     VEL_PULO,
     TEMPO_RESPAWN,
 )
+
+LARGURA_BUEIRO_ANIMACAO_MIN = 76
+LARGURA_BUEIRO_ANIMACAO_MAX = LARGURA_BUEIRO
+FOLGA_BUEIRO_ANIMACAO = 8
 
 
 class Jogador:
@@ -34,6 +39,7 @@ class Jogador:
         self.largura = LARGURA_JOGADOR
         self.vx = 0.0
         self.vy = 0.0
+        self.correndo = False
         self.no_chao = True
         self.salto_ativo = False
         self.caindo_no_buraco = False
@@ -96,10 +102,19 @@ class Jogador:
             return self.tempo_estado >= TEMPO_RESPAWN
         return self.animacoes[self.estado].concluida()
 
+    def _respawn_bloqueando_entrada(self):
+        return self.estado == "respawn" and not self._animacao_temporaria_concluida()
+
     def mover(self, direcao, correndo=False):
         if self.morto or self.caindo_no_buraco:
+            self.correndo = False
+            return
+        if self._respawn_bloqueando_entrada():
+            self.vx = 0.0
+            self.correndo = False
             return
         direcao = max(-1, min(1, int(direcao)))
+        self.correndo = correndo and direcao != 0
         velocidade = VEL_CORRIDA if correndo else VEL_ANDAR
         self.vx = direcao * velocidade
         if not self.no_chao:
@@ -112,7 +127,12 @@ class Jogador:
             self.definir_estado("correr" if correndo else "andar")
 
     def pular(self):
-        if not self.morto and self.no_chao and not self.caindo_no_buraco:
+        if (
+            not self.morto
+            and self.no_chao
+            and not self.caindo_no_buraco
+            and not self._respawn_bloqueando_entrada()
+        ):
             self.vy = VEL_PULO
             self.no_chao = False
             self.salto_ativo = True
@@ -122,10 +142,11 @@ class Jogador:
     def abaixar(self, ativo=True):
         if ativo and not self.morto and self.no_chao and not self._animacao_temporaria_ativa():
             self.vx = 0.0
+            self.correndo = False
             self.definir_estado("abaixar")
 
     def derrapar(self):
-        if not self.morto and self.no_chao:
+        if not self.morto and self.no_chao and not self._respawn_bloqueando_entrada():
             self.vx = VEL_DERRAPAGEM if self.vx >= 0 else -VEL_DERRAPAGEM
             self.definir_estado("derrapando")
 
@@ -150,6 +171,8 @@ class Jogador:
             return
 
         solidos = list(solidos or []) + list(plataformas or [])
+        if self._respawn_bloqueando_entrada():
+            self.vx = 0.0
         self.x += self.vx * dt
         estava_no_chao = self.no_chao
         pousou = False
@@ -209,7 +232,7 @@ class Jogador:
         elif abs(self.vx) < 1:
             self.definir_estado("parada")
         elif self.estado not in ("derrapando", "aterrissando"):
-            self.definir_estado("andar")
+            self.definir_estado("correr" if self.correndo else "andar")
 
         self.tempo_estado += dt
         self.animacoes[self.estado].atualizar(dt)
@@ -241,6 +264,7 @@ class Jogador:
         self.motivo_morte = motivo
         self.vx = 0.0
         self.vy = 0.0
+        self.correndo = False
         if motivo == "buraco" and self.caindo_no_buraco:
             self.definir_estado("buraco")
         else:
@@ -258,11 +282,15 @@ class Jogador:
             self.definir_estado("buraco")
 
     def _ajustar_animacao_buraco(self, largura_buraco):
-        """Escala a sequência do bueiro para a abertura que foi atingida."""
+        """Escala a sequência do bueiro sem aumentar a personagem junto do vao."""
         if not self._quadros_buraco_base or not largura_buraco:
             return
         largura_base = max(quadro.get_width() for quadro in self._quadros_buraco_base)
-        largura_alvo = max(76, int(largura_buraco))
+        largura_disponivel = max(1, int(largura_buraco) - FOLGA_BUEIRO_ANIMACAO)
+        largura_alvo = max(
+            LARGURA_BUEIRO_ANIMACAO_MIN,
+            min(LARGURA_BUEIRO_ANIMACAO_MAX - FOLGA_BUEIRO_ANIMACAO, largura_disponivel),
+        )
         fator = largura_alvo / max(1, largura_base)
         if abs(fator - 1.0) < 0.02:
             quadros = list(self._quadros_buraco_base)
@@ -286,6 +314,7 @@ class Jogador:
         self.y = float(y)
         self.vx = 0.0
         self.vy = 0.0
+        self.correndo = False
         self.no_chao = True
         self.salto_ativo = False
         self.suporte_y = float(y)
